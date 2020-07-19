@@ -1,3 +1,5 @@
+// Copyright 2020 Tobias Klausmann
+// License: Apache 2.0, see LICENSE for details
 package main
 
 import (
