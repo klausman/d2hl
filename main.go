@@ -18,6 +18,7 @@ import (
 var (
 	verbose = flag.Bool("verbose", false, "Be verbose about what's going on")
 	quiet   = flag.Bool("quiet", false, "Do not output summary of actions")
+	dryrun  = flag.Bool("dryrun", false, "Do not do anything, just print what would be done")
 )
 
 type treeinfo struct {
@@ -104,17 +105,21 @@ func dedupe(ti *treeinfo) int64 {
 		check(err)
 		size := fi.Size()
 		for _, name := range names[1:] {
-			if *verbose {
-				fmt.Fprintf(os.Stderr, "Deduping %s to %s\n", name, first)
+			if *dryrun {
+				fmt.Printf("Would dedupe %s with %s\n", name, first)
+			} else {
+				if *verbose {
+					fmt.Fprintf(os.Stderr, "Deduping %s to %s\n", name, first)
+				}
+				tmpname := fmt.Sprintf("%s.tmdedupe", name)
+				err := os.Rename(name, tmpname)
+				check(err)
+				err = os.Link(first, name)
+				check(err)
+				err = os.Remove(tmpname)
+				check(err)
+				savings += size
 			}
-			tmpname := fmt.Sprintf("%s.tmdedupe", name)
-			err := os.Rename(name, tmpname)
-			check(err)
-			err = os.Link(first, name)
-			check(err)
-			err = os.Remove(tmpname)
-			check(err)
-			savings += size
 		}
 	}
 	return savings
