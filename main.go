@@ -80,19 +80,21 @@ func check(err error) {
 	}
 }
 
-func (ti *treeinfo) checksum(p chan string, done chan bool) {
+func (ti *treeinfo) checksum(p chan string, wg *sync.WaitGroup) {
 	//fmt.Fprintf(os.Stderr, "Goroutine starting\n")
+	defer wg.Done()
 	for path := range p {
 		f, err := os.Open(path)
 		if err != nil {
 			continue
 		}
-		defer f.Close()
 
 		h := sha1.New()
 		if _, err := io.Copy(h, f); err != nil {
+			f.Close()
 			continue
 		}
+		f.Close()
 		s := fmt.Sprintf("%x", h.Sum(nil))
 		if *verbose {
 			fmt.Fprintf(os.Stderr, "%s %s\n", s, path)
@@ -102,7 +104,6 @@ func (ti *treeinfo) checksum(p chan string, done chan bool) {
 		ti.RWLock.Unlock()
 	}
 	//fmt.Fprintf(os.Stderr, "Goroutine exiting\n")
-	done <- true
 }
 
 func dedupe(ti *treeinfo) int64 {
@@ -158,9 +159,10 @@ func main() {
 	}
 
 	c := make(chan string)
-	d := make(chan bool)
+	var wg sync.WaitGroup
 	for i := 0; i < 20; i++ {
-		go ti.checksum(c, d)
+		go ti.checksum(c, &wg)
+		wg.Add(1)
 	}
 	start := time.Now()
 	for _, path := range pathlist {
@@ -168,9 +170,7 @@ func main() {
 		c <- path
 	}
 	close(c)
-	for i := 0; i < 20; i++ {
-		<-d
-	}
+	wg.Wait()
 	if !*quiet {
 		t := time.Since(start)
 		fmt.Fprintf(os.Stderr, "Checksummed %d files in %s, %.0f f/s\n", len(pathlist), t, float64(len(pathlist))/t.Seconds())
