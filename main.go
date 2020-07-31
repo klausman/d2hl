@@ -10,21 +10,26 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/dustin/go-humanize"
 )
 
 var (
-	verbose = flag.Bool("verbose", false, "Be verbose about what's going on")
-	quiet   = flag.Bool("quiet", false, "Do not output summary of actions")
-	dryrun  = flag.Bool("dryrun", false, "Do not do anything, just print what would be done")
+	verbose  = flag.Bool("verbose", false, "Be verbose about what's going on")
+	quiet    = flag.Bool("quiet", false, "Do not output summary of actions")
+	dryrun   = flag.Bool("dryrun", false, "Do not do anything, just print what would be done")
+	pathlist []string
 )
 
 type treeinfo struct {
+	RWLock    sync.RWMutex
 	Sums      map[string][]string
 	Inodes    map[uint64]bool
 	DupeCount int
+	FileCount int
 }
 
 func NewTI() treeinfo {
@@ -38,31 +43,26 @@ func (ti *treeinfo) process(path string, info os.FileInfo, err error) error {
 	if err != nil {
 		return err
 	}
-	if info.IsDir() {
+	if !info.Mode().IsRegular() {
 		return nil
 	}
-	if strings.HasSuffix(path, ".tmdedupe") {
+	if strings.HasSuffix(path, ".tmpdedupe") {
 		panic(fmt.Sprintf(
 			"'%s' indicates previous failed run, please investigate", path))
 	}
+	ti.FileCount += 1
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
 		panic(fmt.Sprintf("Somehow got a file without Inode# for '%s'", path))
 	}
+
 	if ok = ti.Inodes[stat.Ino]; ok {
 		//fmt.Fprintf(os.Stderr, "Already seen i-node %d\n", stat.Ino)
 		return nil
 	}
 	//fmt.Printf("%s: %d\n", path, stat.Ino)
 	ti.Inodes[stat.Ino] = true
-	sum, err := checksum(path)
-	if err != nil {
-		return err
-	}
-	ti.Sums[sum] = append(ti.Sums[sum], path)
-	if len(ti.Sums[sum]) > 1 {
-		ti.DupeCount += 1
-	}
+	pathlist = append(pathlist, path)
 	return nil
 }
 
@@ -80,18 +80,29 @@ func check(err error) {
 	}
 }
 
-func checksum(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
+func (ti *treeinfo) checksum(p chan string, done chan bool) {
+	//fmt.Fprintf(os.Stderr, "Goroutine starting\n")
+	for path := range p {
+		f, err := os.Open(path)
+		if err != nil {
+			continue
+		}
+		defer f.Close()
 
-	h := sha1.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
+		h := sha1.New()
+		if _, err := io.Copy(h, f); err != nil {
+			continue
+		}
+		s := fmt.Sprintf("%x", h.Sum(nil))
+		if *verbose {
+			fmt.Fprintf(os.Stderr, "%s %s\n", s, path)
+		}
+		ti.RWLock.Lock()
+		ti.Sums[s] = append(ti.Sums[s], path)
+		ti.RWLock.Unlock()
 	}
-	return fmt.Sprintf("%x", h.Sum(nil)), nil
+	//fmt.Fprintf(os.Stderr, "Goroutine exiting\n")
+	done <- true
 }
 
 func dedupe(ti *treeinfo) int64 {
@@ -111,7 +122,7 @@ func dedupe(ti *treeinfo) int64 {
 				if *verbose {
 					fmt.Fprintf(os.Stderr, "Deduping %s to %s\n", name, first)
 				}
-				tmpname := fmt.Sprintf("%s.tmdedupe", name)
+				tmpname := fmt.Sprintf("%s.tmpdedupe", name)
 				err := os.Rename(name, tmpname)
 				check(err)
 				err = os.Link(first, name)
@@ -119,6 +130,7 @@ func dedupe(ti *treeinfo) int64 {
 				err = os.Remove(tmpname)
 				check(err)
 				savings += size
+				ti.DupeCount += 1
 			}
 		}
 	}
@@ -141,11 +153,33 @@ func main() {
 	}
 	err := filepath.Walk(root, ti.process)
 	check(err)
-	if !*quiet {
-		fmt.Printf("Found %d dedupe-able files\n", ti.DupeCount)
+	if *verbose {
+		fmt.Fprintf(os.Stderr, "Found %d files, %d to checksum\n", ti.FileCount, len(pathlist))
 	}
+
+	c := make(chan string)
+	d := make(chan bool)
+	for i := 0; i < 20; i++ {
+		go ti.checksum(c, d)
+	}
+	start := time.Now()
+	for _, path := range pathlist {
+		//fmt.Fprintf(os.Stderr, "send: %s\n", path)
+		c <- path
+	}
+	close(c)
+	for i := 0; i < 20; i++ {
+		<-d
+	}
+	if !*quiet {
+		t := time.Since(start)
+		fmt.Fprintf(os.Stderr, "Checksummed %d files in %s, %.0f f/s\n", len(pathlist), t, float64(len(pathlist))/t.Seconds())
+	}
+	start = time.Now()
 	s := dedupe(&ti)
 	if !*quiet {
+		t := time.Since(start)
+		fmt.Fprintf(os.Stderr, "Deduped %d files in %s, %.0f f/s\n", ti.DupeCount, t, float64(ti.DupeCount)/t.Seconds())
 		fmt.Printf("Saved %s bytes of disk space\n", humanize.Bytes(uint64(s)))
 	}
 }
