@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -21,6 +22,7 @@ var (
 	verbose  = flag.Bool("verbose", false, "Be verbose about what's going on")
 	quiet    = flag.Bool("quiet", false, "Do not output summary of actions")
 	dryrun   = flag.Bool("dryrun", false, "Do not do anything, just print what would be done")
+	jobs     = flag.Int("jobs", runtime.NumCPU(), "Number of parallel jobs to use when checksumming")
 	pathlist []string
 )
 
@@ -160,7 +162,7 @@ func main() {
 
 	c := make(chan string)
 	var wg sync.WaitGroup
-	for i := 0; i < 20; i++ {
+	for i := 0; i < *jobs; i++ {
 		go ti.checksum(c, &wg)
 		wg.Add(1)
 	}
