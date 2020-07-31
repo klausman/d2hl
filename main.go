@@ -180,6 +180,6 @@ func main() {
 	if !*quiet {
 		t := time.Since(start)
 		fmt.Fprintf(os.Stderr, "Deduped %d files in %s, %.0f f/s\n", ti.DupeCount, t, float64(ti.DupeCount)/t.Seconds())
-		fmt.Printf("Saved %s bytes of disk space\n", humanize.Bytes(uint64(s)))
+		fmt.Printf("Saved %s of disk space\n", humanize.Bytes(uint64(s)))
 	}
 }
