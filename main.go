@@ -129,9 +129,9 @@ func dedupe(ti *treeinfo) int64 {
 				check(err)
 				err = os.Remove(tmpname)
 				check(err)
-				savings += size
-				ti.DupeCount += 1
 			}
+			savings += size
+			ti.DupeCount += 1
 		}
 	}
 	return savings
