@@ -13,9 +13,9 @@ import (
 	"strings"
 	"sync"
 	"syscall"
-	"time"
 
 	"github.com/dustin/go-humanize"
+	"github.com/schollz/progressbar"
 )
 
 var (
@@ -32,6 +32,7 @@ type treeinfo struct {
 	Inodes    map[uint64]bool
 	DupeCount int
 	FileCount int
+	pb	  *progressbar.ProgressBar
 }
 
 func NewTI() treeinfo {
@@ -45,6 +46,7 @@ func (ti *treeinfo) process(path string, info os.FileInfo, err error) error {
 	if err != nil {
 		return err
 	}
+	ti.pb.Add(1)
 	if !info.Mode().IsRegular() {
 		return nil
 	}
@@ -104,13 +106,16 @@ func (ti *treeinfo) checksum(p chan string, wg *sync.WaitGroup) {
 		ti.RWLock.Lock()
 		ti.Sums[s] = append(ti.Sums[s], path)
 		ti.RWLock.Unlock()
+		ti.pb.Add(1)
 	}
 	//fmt.Fprintf(os.Stderr, "Goroutine exiting\n")
 }
 
 func dedupe(ti *treeinfo) int64 {
 	var savings int64
+        ti.pb = progressbar.Default(int64(len(pathlist)), "Cmp/Link")
 	for _, names := range ti.Sums {
+		ti.pb.Add(1)
 		if len(names) <= 1 {
 			continue
 		}
@@ -154,11 +159,16 @@ func main() {
 	} else {
 		root = args[0]
 	}
+	ti.pb = progressbar.NewOptions(-1, progressbar.OptionSpinnerType(9))
+	ti.pb.Describe("Finding files")
 	err := filepath.Walk(root, ti.process)
 	check(err)
+	ti.pb.Finish()
 	if *verbose {
 		fmt.Fprintf(os.Stderr, "Found %d files, %d to checksum\n", ti.FileCount, len(pathlist))
 	}
+
+	ti.pb = progressbar.Default(int64(len(pathlist)), "Checksum")
 
 	c := make(chan string)
 	var wg sync.WaitGroup
@@ -166,22 +176,14 @@ func main() {
 		go ti.checksum(c, &wg)
 		wg.Add(1)
 	}
-	start := time.Now()
 	for _, path := range pathlist {
 		//fmt.Fprintf(os.Stderr, "send: %s\n", path)
 		c <- path
 	}
 	close(c)
 	wg.Wait()
-	if !*quiet {
-		t := time.Since(start)
-		fmt.Fprintf(os.Stderr, "Checksummed %d files in %s, %.0f f/s\n", len(pathlist), t, float64(len(pathlist))/t.Seconds())
-	}
-	start = time.Now()
 	s := dedupe(&ti)
 	if !*quiet {
-		t := time.Since(start)
-		fmt.Fprintf(os.Stderr, "Deduped %d files in %s, %.0f f/s\n", ti.DupeCount, t, float64(ti.DupeCount)/t.Seconds())
 		fmt.Printf("Saved %s of disk space\n", humanize.Bytes(uint64(s)))
 	}
 }
