@@ -32,7 +32,7 @@ type treeinfo struct {
 	Inodes    map[uint64]bool
 	DupeCount int
 	FileCount int
-	pb	  *progressbar.ProgressBar
+	pb        *progressbar.ProgressBar
 }
 
 func NewTI() treeinfo {
@@ -113,7 +113,7 @@ func (ti *treeinfo) checksum(p chan string, wg *sync.WaitGroup) {
 
 func dedupe(ti *treeinfo) int64 {
 	var savings int64
-        ti.pb = progressbar.Default(int64(len(pathlist)), "Cmp/Link")
+	ti.pb = progressbar.Default(int64(len(pathlist)), "Cmp/Link")
 	for _, names := range ti.Sums {
 		ti.pb.Add(1)
 		if len(names) <= 1 {
