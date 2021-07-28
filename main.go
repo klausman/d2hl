@@ -15,7 +15,7 @@ import (
 	"syscall"
 
 	"github.com/dustin/go-humanize"
-	"github.com/schollz/progressbar"
+	"github.com/schollz/progressbar/v3"
 )
 
 var (
