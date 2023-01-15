@@ -14,13 +14,13 @@ import (
 	"sync"
 	"syscall"
 
+	log "github.com/inconshreveable/log15"
+
 	"github.com/dustin/go-humanize"
 	"github.com/schollz/progressbar/v3"
 )
 
 var (
-	verbose  = flag.Bool("verbose", false, "Be verbose about what's going on")
-	quiet    = flag.Bool("quiet", false, "Do not output summary of actions")
 	dryrun   = flag.Bool("dryrun", false, "Do not do anything, just print what would be done")
 	jobs     = flag.Int("jobs", runtime.NumCPU(), "Number of parallel jobs to use when checksumming")
 	pathlist []string
@@ -35,7 +35,7 @@ type treeinfo struct {
 	pb        *progressbar.ProgressBar
 }
 
-func NewTI() treeinfo {
+func newTI() treeinfo {
 	var ti treeinfo
 	var newmtx sync.RWMutex
 	ti.Sums = make(map[string][]string)
@@ -53,20 +53,20 @@ func (ti *treeinfo) process(path string, info os.FileInfo, err error) error {
 		return nil
 	}
 	if strings.HasSuffix(path, ".tmpdedupe") {
-		panic(fmt.Sprintf(
-			"'%s' indicates previous failed run, please investigate", path))
+		log.Crit("Leftover file from previous run, please investigate", "path", path)
+		os.Exit(-1)
 	}
-	ti.FileCount += 1
+	ti.FileCount++
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
-		panic(fmt.Sprintf("Somehow got a file without Inode# for '%s'", path))
+		log.Crit("We somehow got a file without an inode number", "path", path)
+		os.Exit(-1)
 	}
 
 	if ok = ti.Inodes[stat.Ino]; ok {
-		//fmt.Fprintf(os.Stderr, "Already seen i-node %d\n", stat.Ino)
+		log.Debug("We have lready seen this i-node", "inodenum", stat.Ino)
 		return nil
 	}
-	//fmt.Printf("%s: %d\n", path, stat.Ino)
 	ti.Inodes[stat.Ino] = true
 	pathlist = append(pathlist, path)
 	return nil
@@ -86,8 +86,9 @@ func check(err error) {
 	}
 }
 
-func (ti *treeinfo) checksum(p chan string, wg *sync.WaitGroup) {
-	//fmt.Fprintf(os.Stderr, "Goroutine starting\n")
+func (ti *treeinfo) checksum(id int, p chan string, wg *sync.WaitGroup) {
+	wlog := log.New("workerid", id)
+	wlog.Debug("Worker starting")
 	defer wg.Done()
 	for path := range p {
 		f, err := os.Open(path)
@@ -102,15 +103,13 @@ func (ti *treeinfo) checksum(p chan string, wg *sync.WaitGroup) {
 		}
 		f.Close()
 		s := fmt.Sprintf("%x", h.Sum(nil))
-		if *verbose {
-			fmt.Fprintf(os.Stderr, "%s %s\n", s, path)
-		}
+		wlog.Debug("Checksum", "path", path, "sum", s)
 		ti.RWLock.Lock()
 		ti.Sums[s] = append(ti.Sums[s], path)
 		ti.RWLock.Unlock()
 		ti.pb.Add(1)
 	}
-	//fmt.Fprintf(os.Stderr, "Goroutine exiting\n")
+	wlog.Debug("Worker exiting")
 }
 
 func dedupe(ti *treeinfo) int64 {
@@ -127,11 +126,9 @@ func dedupe(ti *treeinfo) int64 {
 		size := fi.Size()
 		for _, name := range names[1:] {
 			if *dryrun {
-				fmt.Printf("Would dedupe %s with %s\n", name, first)
+				log.Warn("Would deduplicate", "src", name, "dest", first)
 			} else {
-				if *verbose {
-					fmt.Fprintf(os.Stderr, "Deduping %s to %s\n", name, first)
-				}
+				log.Info("Deduping", "src", name, "dest", first)
 				tmpname := fmt.Sprintf("%s.tmpdedupe", name)
 				err := os.Rename(name, tmpname)
 				check(err)
@@ -141,7 +138,7 @@ func dedupe(ti *treeinfo) int64 {
 				check(err)
 			}
 			savings += size
-			ti.DupeCount += 1
+			ti.DupeCount++
 		}
 	}
 	return savings
@@ -149,12 +146,10 @@ func dedupe(ti *treeinfo) int64 {
 
 func main() {
 	flag.Parse()
-	if *verbose && *quiet {
-		fmt.Fprintf(os.Stderr, "--quiet and --verbose are mutually exclusive\n")
-		os.Exit(-1)
-	}
+	logSetup("", false)
+
 	var root string
-	ti := NewTI()
+	ti := newTI()
 	args := flag.Args()
 	if len(args) == 0 {
 		root = "."
@@ -166,26 +161,21 @@ func main() {
 	err := filepath.Walk(root, ti.process)
 	check(err)
 	ti.pb.Finish()
-	if *verbose {
-		fmt.Fprintf(os.Stderr, "Found %d files, %d to checksum\n", ti.FileCount, len(pathlist))
-	}
+	log.Info("Files enumerated", "total", ti.FileCount, "tocheck", len(pathlist))
 
 	ti.pb = progressbar.Default(int64(len(pathlist)), "Checksum")
 
 	c := make(chan string)
 	var wg sync.WaitGroup
 	for i := 0; i < *jobs; i++ {
-		go ti.checksum(c, &wg)
+		go ti.checksum(i, c, &wg)
 		wg.Add(1)
 	}
 	for _, path := range pathlist {
-		//fmt.Fprintf(os.Stderr, "send: %s\n", path)
 		c <- path
 	}
 	close(c)
 	wg.Wait()
 	s := dedupe(&ti)
-	if !*quiet {
-		fmt.Printf("Saved %s of disk space\n", humanize.Bytes(uint64(s)))
-	}
+	log.Info("Deduplication complete", "freedspace", humanize.Bytes(uint64(s)))
 }
