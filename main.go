@@ -48,7 +48,6 @@ func (ti *treeinfo) process(path string, info os.FileInfo, err error) error {
 	if err != nil {
 		return err
 	}
-	ti.pb.Add(1)
 	if !info.Mode().IsRegular() {
 		return nil
 	}
