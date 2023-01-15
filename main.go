@@ -27,7 +27,7 @@ var (
 )
 
 type treeinfo struct {
-	RWLock    sync.RWMutex
+	RWLock    *sync.RWMutex
 	Sums      map[string][]string
 	Inodes    map[uint64]bool
 	DupeCount int
@@ -37,8 +37,10 @@ type treeinfo struct {
 
 func NewTI() treeinfo {
 	var ti treeinfo
+	var newmtx sync.RWMutex
 	ti.Sums = make(map[string][]string)
 	ti.Inodes = make(map[uint64]bool)
+	ti.RWLock = &newmtx
 	return ti
 }
 
