@@ -80,12 +80,6 @@ func (ti treeinfo) String() string {
 	return strings.Join(r, "\n")
 }
 
-func check(err error) {
-	if err != nil {
-		panic(err)
-	}
-}
-
 func (ti *treeinfo) checksum(id int, p chan string, wg *sync.WaitGroup) {
 	wlog := log.New("workerid", id)
 	wlog.Debug("Worker starting")
@@ -122,7 +116,10 @@ func dedupe(ti *treeinfo) int64 {
 		}
 		first := names[0]
 		fi, err := os.Stat(first)
-		check(err)
+		if err != nil {
+			log.Crit("Could not stat destination file for dedupe", "path", first, "error", err)
+			os.Exit(-1)
+		}
 		size := fi.Size()
 		for _, name := range names[1:] {
 			if *dryrun {
@@ -131,11 +128,20 @@ func dedupe(ti *treeinfo) int64 {
 				log.Info("Deduping", "src", name, "dest", first)
 				tmpname := fmt.Sprintf("%s.tmpdedupe", name)
 				err := os.Rename(name, tmpname)
-				check(err)
+				if err != nil {
+					log.Crit("Could not rename source file for dedupe", "path", name, "tmpname", tmpname, "error", err)
+					os.Exit(-1)
+				}
 				err = os.Link(first, name)
-				check(err)
+				if err != nil {
+					log.Crit("Could not link src file to dest file", "src", name, "dest", first, "error", err)
+					os.Exit(-1)
+				}
 				err = os.Remove(tmpname)
-				check(err)
+				if err != nil {
+					log.Crit("Could not delete temp file", "tmpname", tmpname, "error", err)
+					os.Exit(-1)
+				}
 			}
 			savings += size
 			ti.DupeCount++
@@ -156,11 +162,11 @@ func main() {
 	} else {
 		root = args[0]
 	}
-	ti.pb = progressbar.NewOptions(-1, progressbar.OptionSpinnerType(9))
-	ti.pb.Describe("Finding files")
 	err := filepath.Walk(root, ti.process)
-	check(err)
-	ti.pb.Finish()
+	if err != nil {
+		log.Crit("Walking tree failed", "error", err)
+		os.Exit(-1)
+	}
 	log.Info("Files enumerated", "total", ti.FileCount, "tocheck", len(pathlist))
 
 	ti.pb = progressbar.Default(int64(len(pathlist)), "Checksum")
