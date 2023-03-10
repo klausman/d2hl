@@ -100,7 +100,10 @@ func (ti *treeinfo) checksum(id int, p chan string, wg *sync.WaitGroup) {
 		ti.RWLock.Lock()
 		ti.Sums[s] = append(ti.Sums[s], path)
 		ti.RWLock.Unlock()
-		ti.pb.Add(1)
+		err = ti.pb.Add(1)
+		if err != nil {
+			panic(err)
+		}
 	}
 	wlog.Debug("Worker exiting")
 }
@@ -109,7 +112,10 @@ func dedupe(ti *treeinfo) int64 {
 	var savings int64
 	ti.pb = progressbar.Default(int64(len(pathlist)), "Cmp/Link")
 	for _, names := range ti.Sums {
-		ti.pb.Add(1)
+		err := ti.pb.Add(1)
+		if err != nil {
+			panic(err)
+		}
 		if len(names) <= 1 {
 			continue
 		}
@@ -151,7 +157,10 @@ func dedupe(ti *treeinfo) int64 {
 
 func main() {
 	flag.Parse()
-	logSetup("", false)
+	err := logSetup("", false)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Could not setup logging: %s\n", err)
+	}
 
 	var root string
 	ti := newTI()
@@ -161,7 +170,7 @@ func main() {
 	} else {
 		root = args[0]
 	}
-	err := filepath.Walk(root, ti.process)
+	err = filepath.Walk(root, ti.process)
 	if err != nil {
 		log.Crit("Walking tree failed", "error", err)
 		os.Exit(-1)
