@@ -9,4 +9,5 @@ require (
 	github.com/kormat/fmt15 v0.0.0-20181112140556-ee69fecb2656
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/schollz/progressbar/v3 v3.8.0
+	golang.org/x/crypto v0.0.0-20210220033148-5ea612d1eb83
 )

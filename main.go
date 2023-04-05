@@ -3,7 +3,6 @@
 package main
 
 import (
-	"crypto/sha1"
 	"flag"
 	"fmt"
 	"io"
@@ -18,6 +17,7 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/schollz/progressbar/v3"
+	"golang.org/x/crypto/blake2b"
 )
 
 var (
@@ -72,7 +72,7 @@ func (ti *treeinfo) process(path string, info os.FileInfo, err error) error {
 }
 
 func (ti treeinfo) String() string {
-	var r []string
+	r := make([]string, 0, len(ti.Sums))
 	for sum, paths := range ti.Sums {
 		r = append(r, fmt.Sprintf("%s: %s", sum, strings.Join(paths, " ")))
 	}
@@ -89,7 +89,11 @@ func (ti *treeinfo) checksum(id int, p chan string, wg *sync.WaitGroup) {
 			continue
 		}
 
-		h := sha1.New()
+		h, err := blake2b.New256(nil)
+		if err != nil {
+			log.Crit("Could not create new hash: %w", err)
+			panic("Exiting")
+		}
 		if _, err := io.Copy(h, f); err != nil {
 			f.Close()
 			continue
