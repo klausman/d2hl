@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/dustin/go-humanize"
 	"github.com/schollz/progressbar/v3"
@@ -30,23 +31,31 @@ func main() {
 	logger := logSetup(os.Stderr, slog.LevelInfo, "20060102-15:04:05.000", true)
 
 	var root string
-	ti := newTI()
 	args := flag.Args()
 	if len(args) == 0 {
 		root = "."
 	} else {
 		root = args[0]
 	}
+	os.Exit(doD2hl(root, logger))
+}
+
+func doD2hl(root string, logger *slog.Logger) int {
+	ti := newTI()
+	ti.l = logger
+	start := time.Now()
 	err := filepath.Walk(root, ti.process)
 	if err != nil {
 		logger.Error("Walking tree failed", "error", err)
-		os.Exit(-1)
+		return -1
 	}
-	logger.Info("Files enumerated", "total", ti.FileCount, "tocheck", len(pathlist))
+	ela := time.Since(start)
+	logger.Info("Files enumerated", "total", ti.FileCount, "tocheck", len(pathlist),
+		"time", ela, "per_sec", float64(ti.FileCount)/ela.Seconds())
 
 	ti.pb = progressbar.Default(int64(len(pathlist)), "Checksum")
-	ti.l = logger
 
+	start = time.Now()
 	c := make(chan string)
 	var wg sync.WaitGroup
 	for i := 0; i < *jobs; i++ {
@@ -58,8 +67,15 @@ func main() {
 	}
 	close(c)
 	wg.Wait()
+	ela = time.Since(start)
+	logger.Info("Files checksummed", "total", len(pathlist), "time", ela,
+		"per_sec", float64(len(pathlist))/ela.Seconds())
+	start = time.Now()
 	s := dedupe(&ti)
-	logger.Info("Deduplication complete", "freedspace", humanize.Bytes(uint64(s)))
+	ela = time.Since(start)
+	logger.Info("Deduplication complete", "freedspace", humanize.Bytes(uint64(s)),
+		"dedupes", ti.DupeCount, "time", ela, "per_sec", float64(ti.DupeCount)/ela.Seconds())
+	return 0
 }
 
 type treeinfo struct {
