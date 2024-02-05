@@ -1,6 +1,7 @@
 # d2hl - Dupes to Hardlinks
 
-A very simple and brittle tool to turn duplicate files (as in contents).
+A very simple and brittle tool to turn duplicate files (as in contents) into
+hardlinks.
 
 Bugs this *definitely* has (there are likely more):
 
