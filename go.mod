@@ -1,13 +1,20 @@
 module github.com/klausman/d2hl
 
-go 1.16
+go 1.21
+
+toolchain go1.21.0
 
 require (
 	github.com/dustin/go-humanize v1.0.1
-	github.com/go-stack/stack v1.8.1 // indirect
-	github.com/inconshreveable/log15 v3.0.0-testing.5+incompatible
-	github.com/kormat/fmt15 v0.0.0-20181112140556-ee69fecb2656
-	github.com/mattn/go-colorable v0.1.13 // indirect
+	github.com/lmittmann/tint v1.0.1
 	github.com/schollz/progressbar/v3 v3.8.0
 	golang.org/x/crypto v0.17.0
+)
+
+require (
+	github.com/mattn/go-runewidth v0.0.10 // indirect
+	github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db // indirect
+	github.com/rivo/uniseg v0.2.0 // indirect
+	golang.org/x/sys v0.15.0 // indirect
+	golang.org/x/term v0.15.0 // indirect
 )

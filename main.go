@@ -6,14 +6,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
 	"syscall"
-
-	log "github.com/inconshreveable/log15"
 
 	"github.com/dustin/go-humanize"
 	"github.com/schollz/progressbar/v3"
@@ -26,6 +25,43 @@ var (
 	pathlist []string
 )
 
+func main() {
+	flag.Parse()
+	logger := logSetup(os.Stderr, slog.LevelInfo, "20060102-15:04:05.000", true)
+
+	var root string
+	ti := newTI()
+	args := flag.Args()
+	if len(args) == 0 {
+		root = "."
+	} else {
+		root = args[0]
+	}
+	err := filepath.Walk(root, ti.process)
+	if err != nil {
+		logger.Error("Walking tree failed", "error", err)
+		os.Exit(-1)
+	}
+	logger.Info("Files enumerated", "total", ti.FileCount, "tocheck", len(pathlist))
+
+	ti.pb = progressbar.Default(int64(len(pathlist)), "Checksum")
+	ti.l = logger
+
+	c := make(chan string)
+	var wg sync.WaitGroup
+	for i := 0; i < *jobs; i++ {
+		go ti.checksum(i, c, &wg)
+		wg.Add(1)
+	}
+	for _, path := range pathlist {
+		c <- path
+	}
+	close(c)
+	wg.Wait()
+	s := dedupe(&ti)
+	logger.Info("Deduplication complete", "freedspace", humanize.Bytes(uint64(s)))
+}
+
 type treeinfo struct {
 	RWLock    *sync.RWMutex
 	Sums      map[string][]string
@@ -33,6 +69,7 @@ type treeinfo struct {
 	DupeCount int
 	FileCount int
 	pb        *progressbar.ProgressBar
+	l         *slog.Logger
 }
 
 func newTI() treeinfo {
@@ -52,18 +89,18 @@ func (ti *treeinfo) process(path string, info os.FileInfo, err error) error {
 		return nil
 	}
 	if strings.HasSuffix(path, ".tmpdedupe") {
-		log.Crit("Leftover file from previous run, please investigate", "path", path)
+		ti.l.Error("Leftover file from previous run, please investigate", "path", path)
 		os.Exit(-1)
 	}
 	ti.FileCount++
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
-		log.Crit("We somehow got a file without an inode number", "path", path)
+		ti.l.Error("We somehow got a file without an inode number", "path", path)
 		os.Exit(-1)
 	}
 
 	if ok = ti.Inodes[stat.Ino]; ok {
-		log.Debug("We have lready seen this i-node", "inodenum", stat.Ino)
+		ti.l.Debug("We have lready seen this i-node", "inodenum", stat.Ino)
 		return nil
 	}
 	ti.Inodes[stat.Ino] = true
@@ -80,7 +117,7 @@ func (ti treeinfo) String() string {
 }
 
 func (ti *treeinfo) checksum(id int, p chan string, wg *sync.WaitGroup) {
-	wlog := log.New("workerid", id)
+	wlog := ti.l.With("workerid", id)
 	wlog.Debug("Worker starting")
 	defer wg.Done()
 	for path := range p {
@@ -91,7 +128,7 @@ func (ti *treeinfo) checksum(id int, p chan string, wg *sync.WaitGroup) {
 
 		h, err := blake2b.New256(nil)
 		if err != nil {
-			log.Crit("Could not create new hash: %w", err)
+			wlog.Error("Could not create new hash: %w", err)
 			panic("Exiting")
 		}
 		if _, err := io.Copy(h, f); err != nil {
@@ -126,29 +163,29 @@ func dedupe(ti *treeinfo) int64 {
 		first := names[0]
 		fi, err := os.Stat(first)
 		if err != nil {
-			log.Crit("Could not stat destination file for dedupe", "path", first, "error", err)
+			ti.l.Error("Could not stat destination file for dedupe", "path", first, "error", err)
 			os.Exit(-1)
 		}
 		size := fi.Size()
 		for _, name := range names[1:] {
 			if *dryrun {
-				log.Warn("Would deduplicate", "src", name, "dest", first)
+				ti.l.Warn("Would deduplicate", "src", name, "dest", first)
 			} else {
-				log.Info("Deduping", "src", name, "dest", first)
+				ti.l.Info("Deduping", "src", name, "dest", first)
 				tmpname := fmt.Sprintf("%s.tmpdedupe", name)
 				err := os.Rename(name, tmpname)
 				if err != nil {
-					log.Crit("Could not rename source file for dedupe", "path", name, "tmpname", tmpname, "error", err)
+					ti.l.Error("Could not rename source file for dedupe", "path", name, "tmpname", tmpname, "error", err)
 					os.Exit(-1)
 				}
 				err = os.Link(first, name)
 				if err != nil {
-					log.Crit("Could not link src file to dest file", "src", name, "dest", first, "error", err)
+					ti.l.Error("Could not link src file to dest file", "src", name, "dest", first, "error", err)
 					os.Exit(-1)
 				}
 				err = os.Remove(tmpname)
 				if err != nil {
-					log.Crit("Could not delete temp file", "tmpname", tmpname, "error", err)
+					ti.l.Error("Could not delete temp file", "tmpname", tmpname, "error", err)
 					os.Exit(-1)
 				}
 			}
@@ -157,43 +194,4 @@ func dedupe(ti *treeinfo) int64 {
 		}
 	}
 	return savings
-}
-
-func main() {
-	flag.Parse()
-	err := logSetup("", false)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Could not setup logging: %s\n", err)
-	}
-
-	var root string
-	ti := newTI()
-	args := flag.Args()
-	if len(args) == 0 {
-		root = "."
-	} else {
-		root = args[0]
-	}
-	err = filepath.Walk(root, ti.process)
-	if err != nil {
-		log.Crit("Walking tree failed", "error", err)
-		os.Exit(-1)
-	}
-	log.Info("Files enumerated", "total", ti.FileCount, "tocheck", len(pathlist))
-
-	ti.pb = progressbar.Default(int64(len(pathlist)), "Checksum")
-
-	c := make(chan string)
-	var wg sync.WaitGroup
-	for i := 0; i < *jobs; i++ {
-		go ti.checksum(i, c, &wg)
-		wg.Add(1)
-	}
-	for _, path := range pathlist {
-		c <- path
-	}
-	close(c)
-	wg.Wait()
-	s := dedupe(&ti)
-	log.Info("Deduplication complete", "freedspace", humanize.Bytes(uint64(s)))
 }
