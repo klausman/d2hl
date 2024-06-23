@@ -1,4 +1,4 @@
-module github.com/klausman/d2hl
+module pkg.i-no.de/pkg/d2hl
 
 go 1.21
 
