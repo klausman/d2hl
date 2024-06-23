@@ -1,5 +1,9 @@
 # d2hl - Dupes to Hardlinks
 
+**NOTE**: As of 2024-06-23 the Go import url of this repo has changed to:
+`pkg.i-no.de/pkg/d2hl`. Issues, merge requests etc should be filed at its new
+source location, https://codeberg.org/klausman/d2hl
+
 A very simple and brittle tool to turn duplicate files (as in contents) into
 hardlinks.
 
