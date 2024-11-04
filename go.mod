@@ -1,8 +1,8 @@
 module pkg.i-no.de/pkg/d2hl
 
-go 1.21
+go 1.23
 
-toolchain go1.21.0
+toolchain go1.23.0
 
 require (
 	github.com/dustin/go-humanize v1.0.1

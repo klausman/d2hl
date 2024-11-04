@@ -21,9 +21,11 @@ import (
 )
 
 var (
-	dryrun   = flag.Bool("dryrun", false, "Do not do anything, just print what would be done")
-	jobs     = flag.Int("jobs", runtime.NumCPU(), "Number of parallel jobs to use when checksumming")
-	pathlist []string
+	dryrun     = flag.Bool("dryrun", false, "Do not do anything, just print what would be done")
+	jobs       = flag.Int("jobs", runtime.NumCPU(), "Number of parallel jobs to use when checksumming")
+	nodotfiles = flag.Bool("nodot", false, "Exclude files starting with a dot")
+	minsize    = flag.Uint64("minsize", 0, "Minimum file size to consider")
+	pathlist   []string
 )
 
 func main() {
@@ -73,7 +75,7 @@ func doD2hl(root string, logger *slog.Logger) int {
 	start = time.Now()
 	s := dedupe(&ti)
 	ela = time.Since(start)
-	logger.Info("Deduplication complete", "freedspace", humanize.Bytes(uint64(s)),
+	logger.Info("Deduplication complete", "freedspace", humanize.Bytes(s),
 		"dedupes", ti.DupeCount, "time", ela, "per_sec", float64(ti.DupeCount)/ela.Seconds())
 	return 0
 }
@@ -102,6 +104,17 @@ func (ti *treeinfo) process(path string, info os.FileInfo, err error) error {
 		return err
 	}
 	if !info.Mode().IsRegular() {
+		return nil
+	}
+	if *nodotfiles && strings.HasPrefix(info.Name(), ".") {
+		return nil
+	}
+	sz := info.Size()
+	if sz < 0 {
+		ti.l.Error("Found file with negative size, please investigate", "path", path, "size", info.Size())
+		os.Exit(-1)
+	}
+	if uint64(sz) < *minsize {
 		return nil
 	}
 	if strings.HasSuffix(path, ".tmpdedupe") {
@@ -144,7 +157,7 @@ func (ti *treeinfo) checksum(id int, p chan string, wg *sync.WaitGroup) {
 
 		h, err := blake2b.New256(nil)
 		if err != nil {
-			wlog.Error("Could not create new hash: %w", err)
+			wlog.Error("Could not create new hash", "err", err)
 			panic("Exiting")
 		}
 		if _, err := io.Copy(h, f); err != nil {
@@ -165,8 +178,8 @@ func (ti *treeinfo) checksum(id int, p chan string, wg *sync.WaitGroup) {
 	wlog.Debug("Worker exiting")
 }
 
-func dedupe(ti *treeinfo) int64 {
-	var savings int64
+func dedupe(ti *treeinfo) uint64 {
+	var savings uint64
 	ti.pb = progressbar.Default(int64(len(pathlist)), "Cmp/Link")
 	for _, names := range ti.Sums {
 		err := ti.pb.Add(1)
@@ -205,7 +218,8 @@ func dedupe(ti *treeinfo) int64 {
 					os.Exit(-1)
 				}
 			}
-			savings += size
+			//nolint:gosec // We _really_ don't expect negative filesizes here
+			savings += uint64(size)
 			ti.DupeCount++
 		}
 	}
