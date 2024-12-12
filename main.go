@@ -66,6 +66,7 @@ func strToLoglevel(s string) (slog.Level, error) {
 func doD2hl(root string, logger *slog.Logger) int {
 	ti := newTI()
 	ti.log = logger
+	logger.Info("Enumerating files", "root", root)
 	start := time.Now()
 	err := filepath.Walk(root, ti.process)
 	if err != nil {
@@ -76,6 +77,7 @@ func doD2hl(root string, logger *slog.Logger) int {
 	logger.Info("Files enumerated", "total", ti.FileCount, "tocheck", len(pathlist),
 		"time", elapsed, "per_sec", float64(ti.FileCount)/elapsed.Seconds())
 
+	//nolint:staticcheck // We do not use contexts at all
 	if logger.Enabled(nil, slog.LevelInfo) {
 		ti.progbar = progressbar.Default(int64(len(pathlist)), "Checksum")
 	}
@@ -207,6 +209,7 @@ func (ti *treeinfo) checksum(id int, p chan string, wg *sync.WaitGroup) {
 func dedupe(ti *treeinfo) uint64 {
 	var savings uint64
 
+	//nolint:staticcheck // We do not use contexts at all
 	if ti.log.Enabled(nil, slog.LevelInfo) {
 		ti.progbar = progressbar.Default(int64(len(pathlist)), "Cmp/Link")
 	}
