@@ -20,23 +20,30 @@ import (
 	"golang.org/x/crypto/blake2b"
 )
 
+const version = "v1.0.0"
+
 var (
 	dryrun     = flag.Bool("dryrun", false, "Do not do anything, just print what would be done")
 	jobs       = flag.Int("jobs", runtime.NumCPU(), "Number of parallel jobs to use when checksumming")
 	nodotfiles = flag.Bool("nodot", false, "Exclude files starting with a dot")
 	minsize    = flag.Uint64("minsize", 0, "Minimum file size to consider")
 	loglevel   = flag.String("level", "info", "Log level, one of debug, info, warn, error")
+	ver        = flag.Bool("version", false, "Show version and exit")
 	pathlist   []string
 )
 
 func main() {
 	flag.Parse()
+	if *ver {
+		fmt.Fprintf(os.Stderr, "d2hl %s", version)
+		os.Exit(0)
+	}
 	ll, err := strToLoglevel(*loglevel)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s\n", err)
 		os.Exit(-1)
 	}
-	logger := logSetup(os.Stderr, ll, "20060102-15:04:05.000", true)
+	logger := logSetup(os.Stderr, slog.LevelInfo, "20060102-15:04:05.000", true)
 
 	var root string
 	args := flag.Args()

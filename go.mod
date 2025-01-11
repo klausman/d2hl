@@ -1,20 +1,17 @@
 module pkg.i-no.de/pkg/d2hl
 
-go 1.23
-
-toolchain go1.23.0
+go 1.23.4
 
 require (
 	github.com/dustin/go-humanize v1.0.1
-	github.com/lmittmann/tint v1.0.1
-	github.com/schollz/progressbar/v3 v3.8.0
-	golang.org/x/crypto v0.31.0
+	github.com/lmittmann/tint v1.0.6
+	github.com/schollz/progressbar/v3 v3.18.0
+	golang.org/x/crypto v0.32.0
 )
 
 require (
-	github.com/mattn/go-runewidth v0.0.10 // indirect
 	github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db // indirect
-	github.com/rivo/uniseg v0.2.0 // indirect
-	golang.org/x/sys v0.28.0 // indirect
-	golang.org/x/term v0.27.0 // indirect
+	github.com/rivo/uniseg v0.4.7 // indirect
+	golang.org/x/sys v0.29.0 // indirect
+	golang.org/x/term v0.28.0 // indirect
 )
